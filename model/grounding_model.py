@@ -113,7 +113,7 @@ class grounding_model(nn.Module):
             self.textdim=1024
         ## Visual model
         self.visumodel = Darknet(config_path='./model/yolov3.cfg')
-        self.visumodel.load_weights('./saved_models/yolov3.weights')
+        # self.visumodel.load_weights('./saved_models/yolov3.weights')
         self.intmd_fea=[]
         ## Text model
         if self.lstm:

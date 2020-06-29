@@ -37,9 +37,6 @@ from pytorch_pretrained_bert.tokenization import BertTokenizer
 from pytorch_pretrained_bert.modeling import BertModel
 from utils.transforms import letterbox, random_affine
 
-from torchvision.transforms import ToTensor
-
-
 sys.modules['utils'] = utils
 
 cv2.setNumThreads(0)
@@ -190,13 +187,11 @@ class ReferDataset(data.Dataset):
         self.tokenizer = BertTokenizer.from_pretrained(bert_model, do_lower_case=True)
         self.augment=augment
         self.return_idx=return_idx
-        self.totensor = ToTensor()
 
         if self.dataset == 'referit':
             self.dataset_root = osp.join(self.data_root, 'referit')
             self.im_dir = osp.join(self.dataset_root, 'images')
             self.split_dir = osp.join(self.dataset_root, 'splits')
-            self.seg_mask_dir = osp.join(self.dataset_root, 'mask')
         elif  self.dataset == 'flickr':
             self.dataset_root = osp.join(self.data_root, 'Flickr30k')
             self.im_dir = osp.join(self.dataset_root, 'flickr30k_images')
@@ -205,7 +200,6 @@ class ReferDataset(data.Dataset):
             self.im_dir = osp.join(
                 self.dataset_root, 'images', 'mscoco', 'images', 'train2014')
             self.split_dir = osp.join(self.dataset_root, 'splits')
-            self.seg_mask_dir = osp.join(self.dataset_root, self.dataset, 'mask')
 
         if not self.exists_dataset():
             # self.process_dataset()
@@ -248,29 +242,12 @@ class ReferDataset(data.Dataset):
 
         img_path = osp.join(self.im_dir, img_file)
         img = cv2.imread(img_path)
-
-        mask = None
-        if self.dataset =='referit':
-            seg_mask_path = osp.join(self.seg_mask_dir, _[:-3]+'mat')
-            mask = sio.loadmat(seg_mask_path)['segimg_t']
-            mask = mask+1
-            # mask = (mask+1) * 255
-            # mask = np.expand_dims(mask, axis=2)
-            # mask = np.repeat(mask, 3, axis=2).astype(np.uint8)
-            # cv2.imshow('mask', mask)
-            # cv2.waitKey(0)
-        elif self.dataset == 'unc+':
-            seg_mask_path = osp.join(self.seg_mask_dir, _)
-            mask = torch.load(seg_mask_path).numpy()
-            
-
-        
         ## duplicate channel if gray image
         if img.shape[-1] > 1:
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         else:
             img = np.stack([img] * 3)
-        return img, phrase, bbox, mask
+        return img, phrase, bbox
 
     def tokenize_phrase(self, phrase):
         return self.corpus.tokenize(phrase, self.query_len)
@@ -281,11 +258,8 @@ class ReferDataset(data.Dataset):
     def __len__(self):
         return len(self.images)
 
-    def create_Image_for_Mask(file_path):
-        pass
-
     def __getitem__(self, idx):
-        img, phrase, bbox, mask = self.pull_item(idx)
+        img, phrase, bbox = self.pull_item(idx)
         # phrase = phrase.decode("utf-8").encode().lower()
         phrase = phrase.lower()
         if self.augment:
@@ -293,13 +267,12 @@ class ReferDataset(data.Dataset):
 
         ## seems a bug in torch transformation resize, so separate in advance
         h,w = img.shape[0], img.shape[1]
-        if self.split == 'train':
+        if self.augment:
             ## random horizontal flip
             if augment_flip and random.random() > 0.5:
                 img = cv2.flip(img, 1)
                 bbox[0], bbox[2] = w-bbox[2]-1, w-bbox[0]-1
                 phrase = phrase.replace('right','*&^special^&*').replace('left','right').replace('*&^special^&*','left')
-                mask = cv2.flip(mask, 1)
             ## random intensity, saturation change
             if augment_hsv:
                 fraction = 0.50
@@ -317,33 +290,21 @@ class ReferDataset(data.Dataset):
                 img_hsv[:, :, 1] = S.astype(np.uint8)
                 img_hsv[:, :, 2] = V.astype(np.uint8)
                 img = cv2.cvtColor(cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR), cv2.COLOR_BGR2RGB)
-            img, mask, ratio, dw, dh = letterbox(img, mask, self.imsize)
-            # img, _, ratio, dw, dh = letterbox(img, None, self.imsize)
+            img, _, ratio, dw, dh = letterbox(img, None, self.imsize)
             bbox[0], bbox[2] = bbox[0]*ratio+dw, bbox[2]*ratio+dw
             bbox[1], bbox[3] = bbox[1]*ratio+dh, bbox[3]*ratio+dh
             ## random affine transformation
             if augment_affine:
-                # img, _, bbox, M = random_affine(img, None, bbox, \
-                #     degrees=(-5, 5), translate=(0.10, 0.10), scale=(0.90, 1.10))
-                img, mask, bbox, M = random_affine(img, mask, bbox, \
+                img, _, bbox, M = random_affine(img, None, bbox, \
                     degrees=(-5, 5), translate=(0.10, 0.10), scale=(0.90, 1.10))
-        elif self.split == 'val':   ## should be inference, or specified training
-            img, mask, ratio, dw, dh = letterbox(img, mask, self.imsize)
-            # mask, _, _, _, _ = letterbox(mask, None, self.imsize)
-            bbox[0], bbox[2] = bbox[0]*ratio+dw, bbox[2]*ratio+dw
-            bbox[1], bbox[3] = bbox[1]*ratio+dh, bbox[3]*ratio+dh
-
         else:   ## should be inference, or specified training
-            img, _, ratio, dw, dh = letterbox(img, mask, self.imsize)
-            # mask, _, _, _, _ = letterbox(mask, None, self.imsize)
+            img, _, ratio, dw, dh = letterbox(img, None, self.imsize)
             bbox[0], bbox[2] = bbox[0]*ratio+dw, bbox[2]*ratio+dw
             bbox[1], bbox[3] = bbox[1]*ratio+dh, bbox[3]*ratio+dh
 
-        str_word = phrase
         ## Norm, to tensor
         if self.transform is not None:
             img = self.transform(img)
-            mask = self.totensor(mask)
         if self.lstm:
             phrase = self.tokenize_phrase(phrase)
             word_id = phrase
@@ -358,11 +319,10 @@ class ReferDataset(data.Dataset):
         if self.testmode:
             return img, np.array(word_id, dtype=int), np.array(word_mask, dtype=int), \
                 np.array(bbox, dtype=np.float32), np.array(ratio, dtype=np.float32), \
-                np.array(dw, dtype=np.float32), np.array(dh, dtype=np.float32), self.images[idx][0], \
-                    mask.float(), str_word
+                np.array(dw, dtype=np.float32), np.array(dh, dtype=np.float32), self.images[idx][0]
         else:
             return img, np.array(word_id, dtype=int), np.array(word_mask, dtype=int), \
-            np.array(bbox, dtype=np.float32), mask.float(), str(str_word)
+            np.array(bbox, dtype=np.float32)
 
 if __name__ == '__main__':
     import nltk

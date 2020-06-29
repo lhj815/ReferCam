@@ -1,0 +1,11 @@
+saved_models/*
+
+ln_data/*
+
+__pycache__/
+
+data/
+
+backup/
+
+visualizations/*

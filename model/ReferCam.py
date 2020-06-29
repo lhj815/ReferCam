@@ -187,24 +187,48 @@ class ReferCam(nn.Module):
                 # ConvBatchNormReLU(emb_size*2, emb_size, 1, 1, 0, 1, leaky=leaky),
                 Interpolate(size=(cam_size, cam_size), mode='bilinear'),
                 ConvBatchNormReLU(emb_size, emb_size // 2, 1, 1, 0, 1, leaky=leaky),
-                nn.Conv2d(emb_size // 2, 2, kernel_size=1), )),
+                nn.Dropout2d(0.5),
+                nn.Conv2d(emb_size // 2, 2, kernel_size=1, bias=False), )),
             ('1', torch.nn.Sequential(
                 ConvBatchNormReLU(embin_size, emb_size, 1, 1, 0, 1, leaky=leaky),
                 # ConvBatchNormReLU(emb_size*2, emb_size, 1, 1, 0, 1, leaky=leaky),
                 Interpolate(size=(cam_size, cam_size), mode='bilinear'),
                 ConvBatchNormReLU(emb_size, emb_size // 2, 1, 1, 0, 1, leaky=leaky),
-                nn.Conv2d(emb_size // 2, 2, kernel_size=1), )),
+                nn.Dropout2d(0.5),
+                nn.Conv2d(emb_size // 2, 2, kernel_size=1, bias=False), )),
             ('2', torch.nn.Sequential(
                 ConvBatchNormReLU(embin_size, emb_size, 1, 1, 0, 1, leaky=leaky),
+                # ConvBatchNormReLU(emb_size*2, emb_size, 1, 1, 0, 1, leaky=leaky),
+                Interpolate(size=(cam_size, cam_size), mode='bilinear'),
+                ConvBatchNormReLU(emb_size, emb_size // 2, 1, 1, 0, 1, leaky=leaky),
+                nn.Dropout2d(0.5),
+                nn.Conv2d(emb_size // 2, 2, kernel_size=1, bias=False), )),
+        ]))
+
+        self.avg_pool = nn.AvgPool2d(20)
+
+        self.f9 = nn.Sequential(OrderedDict([
+            ('0', torch.nn.Sequential(
+                ConvBatchNormReLU(embin_size+3, emb_size, 1, 1, 0, 1, leaky=leaky),
+                # ConvBatchNormReLU(emb_size*2, emb_size, 1, 1, 0, 1, leaky=leaky),
+                Interpolate(size=(cam_size, cam_size), mode='bilinear'),
+                ConvBatchNormReLU(emb_size, emb_size // 2, 1, 1, 0, 1, leaky=leaky),
+                nn.Conv2d(emb_size // 2, 2, kernel_size=1), )),
+            ('1', torch.nn.Sequential(
+                ConvBatchNormReLU(embin_size+3, emb_size, 1, 1, 0, 1, leaky=leaky),
+                # ConvBatchNormReLU(emb_size*2, emb_size, 1, 1, 0, 1, leaky=leaky),
+                Interpolate(size=(cam_size, cam_size), mode='bilinear'),
+                ConvBatchNormReLU(emb_size, emb_size // 2, 1, 1, 0, 1, leaky=leaky),
+                nn.Conv2d(emb_size // 2, 2, kernel_size=1), )),
+            ('2', torch.nn.Sequential(
+                ConvBatchNormReLU(embin_size+3, emb_size, 1, 1, 0, 1, leaky=leaky),
                 # ConvBatchNormReLU(emb_size*2, emb_size, 1, 1, 0, 1, leaky=leaky),
                 Interpolate(size=(cam_size, cam_size), mode='bilinear'),
                 ConvBatchNormReLU(emb_size, emb_size // 2, 1, 1, 0, 1, leaky=leaky),
                 nn.Conv2d(emb_size // 2, 2, kernel_size=1), )),
         ]))
 
-        self.avg_pool = nn.AvgPool2d(20)
-
-    def forward(self, input):
+    def forward(self, input, scale=32, ori_tensor_img=None):
         # args = get_args()
 
         if self.training:
@@ -219,7 +243,7 @@ class ReferCam(nn.Module):
             label_batch_all=[]
             for scale_ii in range(len(pred_anchor)):
 
-                grid, grid_size = args.size // (32 // (2 ** scale_ii)), 32 // (2 ** scale_ii)
+                grid, grid_size = args.size // (scale // (2 ** scale_ii)), scale // (2 ** scale_ii)
                 anchor_idxs = [x + 3 * scale_ii for x in [0, 1, 2]]
                 anchors = [anchors_full[i] for i in anchor_idxs]
                 # scaled_anchors = torch.from_numpy(np.asarray([(x[0] / (args.anchor_imsize / grid), \
@@ -283,8 +307,8 @@ class ReferCam(nn.Module):
                     .view(batch_size, -1)
                 # labels = torch.ones(batch_size,1).cuda()
 
-                FG_THRESH=0.5
-                BG_THRESH_HI = 0.5
+                FG_THRESH=0.7
+                BG_THRESH_HI = 0.3
                 BG_THRESH_LO= 0.00
                 fg_rois_per_image = 2
                 rois_per_image=8
@@ -361,116 +385,36 @@ class ReferCam(nn.Module):
                 roi_batch_all.append(rois_batch)
                 label_batch_all.append(labels_batch)
 
+            # roi_batch_all=torch.cat(roi_batch_all)
+            # label_batch_all=torch.cat(label_batch_all)
 
-                # num_images = 1
-                # rois_per_image = int(cfg.TRAIN.BATCH_SIZE / num_images)
-                # fg_rois_per_image = int(np.round(cfg.TRAIN.FG_FRACTION * rois_per_image))
-                # fg_rois_per_image = 1 if fg_rois_per_image == 0 else fg_rois_per_image
-                #
-                # labels, rois, bbox_targets, bbox_inside_weights = self._sample_rois_pytorch(
-                #     all_rois, gt_boxes, fg_rois_per_image,
-                #     rois_per_image, self._num_classes)
-
-
-                # box_coder(bbox, pred_anchor[scale_ii],anchors_full,scale_ii,args)
-                # pred_coord_all = []
-                # pred_score_all = []
-                # # pred_coord_neg = torch.zeros(batch_size*3, 4)
-                # pos_ind_batch=[]
-                # neg_ind_batch = []
-                # scaled_gt = coord_list[scale_ii]
-                # pred_scale=pred_anchor[scale_ii]
-                # for ii in range(batch_size):
-                #
-                #
-                #     pos_anchor_ind = (iou_all[scale_ii] >= 0.5)[ii]
-                #     neg_anchor_ind = (iou_all[scale_ii] < 0.5)[ii]
-                #     # pos_ind_batch.append(pos_anchor_ind)
-                #     # neg_ind_batch.append(neg_anchor_ind)
-                #
-                #     pred_coord = torch.zeros(n_neg+1, 4).cuda()
-                #     pred_score= torch.zeros(n_neg+1).cuda()
-                #     # best_scale_ii = best_n_list[ii]//3
-                #     grid, grid_size = args.size//(32//(2**scale_ii)), 32//(2**scale_ii)
-                #     anchor_idxs = [x + 3*scale_ii for x in [0,1,2]]
-                #     anchors = [anchors_full[i] for i in anchor_idxs]
-                #     scaled_anchors = [ (x[0] / (args.anchor_imsize/grid), \
-                #         x[1] / (args.anchor_imsize/grid)) for x in anchors]
-                #
-                #     gi=scaled_gt[ii,0].long()
-                #     gj=scaled_gt[ii,1].long()
-                #
-                #     ind=torch.zeros(3, grid, grid)
-                #     ind[pos_anchor_ind,gj,gi] =1.
-                #
-                #
-                #     # grid_range_x = list(range(0, grid))
-                #     # grid_range_y = list(range(0, grid))
-                #     # grid_range_x.remove(gi[ii])
-                #     # grid_range_y.remove(gj[ii])
-                #
-                #
-                #
-                #     pred_coord[0,0] = F.sigmoid(pred_anchor[scale_ii][ii, best_n_list[ii]%3, 0, gj[ii], gi[ii]]) + gi[ii].float()
-                #     pred_coord[0,1] = F.sigmoid(pred_anchor[scale_ii][ii, best_n_list[ii]%3, 1, gj[ii], gi[ii]]) + gj[ii].float()
-                #     pred_coord[0,2] = torch.exp(pred_anchor[scale_ii][ii, best_n_list[ii]%3, 2, gj[ii], gi[ii]]) * scaled_anchors[best_n_list[ii]%3][0]
-                #     pred_coord[0,3] = torch.exp(pred_anchor[scale_ii][ii, best_n_list[ii]%3, 3, gj[ii], gi[ii]]) * scaled_anchors[best_n_list[ii]%3][1]
-                #     pred_coord[0,:] = pred_coord[0,:] * grid_ratio
-                #
-                #     pred_score[0]=1
-                #
-                #     for jj in range(1,n_neg+1):
-                #         coord_x = torch.tensor(random.choice(grid_range_x)).cuda()
-                #         coord_y = torch.tensor(random.choice(grid_range_y)).cuda()
-                #
-                #         pred_coord[jj,0] = F.sigmoid(pred_anchor[best_scale_ii][ii, best_n_list[ii]%3, 0, coord_y, coord_x]) + coord_x.float()
-                #         pred_coord[jj,1] = F.sigmoid(pred_anchor[best_scale_ii][ii, best_n_list[ii]%3, 1, coord_y, coord_x]) + coord_y.float()
-                #         pred_coord[jj,2] = torch.exp(pred_anchor[best_scale_ii][ii, best_n_list[ii]%3, 2, coord_y, coord_x]) * scaled_anchors[best_n_list[ii]%3][0]
-                #         pred_coord[jj,3] = torch.exp(pred_anchor[best_scale_ii][ii, best_n_list[ii]%3, 3, coord_y, coord_x]) * scaled_anchors[best_n_list[ii]%3][1]
-                #         pred_coord[jj,:] = pred_coord[jj,:] * grid_ratio
-                #
-                #     # coord_x = torch.tensor(random.choice(grid_range_x)).cuda()
-                #     # coord_y = torch.tensor(random.choice(grid_range_y)).cuda()
-                #     #
-                #     #
-                #     # pred_coord[2,0] = F.sigmoid(pred_anchor[best_scale_ii][ii, best_n_list[ii]%3, 0, coord_y, coord_x]) + coord_x.float()
-                #     # pred_coord[2,1] = F.sigmoid(pred_anchor[best_scale_ii][ii, best_n_list[ii]%3, 1, coord_y, coord_x]) + coord_y.float()
-                #     # pred_coord[2,2] = torch.exp(pred_anchor[best_scale_ii][ii, best_n_list[ii]%3, 2, coord_y, coord_x]) * scaled_anchors[best_n_list[ii]%3][0]
-                #     # pred_coord[2,3] = torch.exp(pred_anchor[best_scale_ii][ii, best_n_list[ii]%3, 3, coord_y, coord_x]) * scaled_anchors[best_n_list[ii]%3][1]
-                #     # pred_coord[2,:] = pred_coord[2,:] * grid_ratio
-                #
-                #     pred_coord = xywh2xyxy(pred_coord)
-                #     pred_coord_all.append(pred_coord.cuda())
-                #     pred_score_all.append(pred_score)
-
-                # feat_map=intmd_fea[scale_ii]
-                # roi_feat=roi_align(feat_map,rois_batch.view(-1, 5),[roi_size,roi_size], 1./grid)
-                # roi_feat_all.append(roi_feat)
-                # scores.append(labels_batch.view(-1))
-                # pred_coord_all.append(pred_coord)
-
-            roi_batch_all=torch.cat(roi_batch_all)
-            label_batch_all=torch.cat(label_batch_all)
-
-
+            roi_img_all = list()
             for scale_ii in range(len(intmd_fea)):
                 grid, grid_size = args.size // (32 // (2 ** scale_ii)), 32 // (2 ** scale_ii)
                 roi_size = (scale_ii + 1) * 7
 
                 feat_map=intmd_fea[scale_ii]
                 # roi_scale=torch.cat([roi_batch_all.view(-1, 5)[:,0].unsqueeze(1),roi_batch_all.view(-1, 5)[:,1:]/grid_size],dim=1)
-                roi_feat=roi_align(feat_map,roi_batch_all.view(-1, 5),[roi_size,roi_size], 1./grid_size)
+                roi_feat=roi_align(feat_map, roi_batch_all[scale_ii].view(-1, 5),[roi_size,roi_size], 1./grid_size)
+                roi_img=roi_align(ori_tensor_img.detach(), roi_batch_all[scale_ii].view(-1, 5),[20,20])#, 1./grid_size)
                 roi_feat_all.append(roi_feat)
-                scores.append(label_batch_all.view(-1))
+                scores.append(label_batch_all[scale_ii].view(-1))
+                roi_img_all.append(roi_img)
 
 
             cam, bi_score = [], []
+            cam_rv = []
             for ii in range(len(roi_feat_all)):
                 output=self.fcn_out._modules[str(ii)](roi_feat_all[ii])
                 cam.append(output)
-                bi_score.append(self.avg_pool(cam[ii]).squeeze())
+                # bi_score.append(self.avg_pool(output).squeeze())
+                f = torch.cat([roi_img_all[ii], F.interpolate(roi_feat_all[ii], (output.size(2),output.size(3)))], dim=1)
+                output_rv = self.PCM(output, f, ii)
+                output_rv = 1. - output_rv
+                bi_score.append(self.avg_pool(output).squeeze())
+                cam_rv.append(output_rv)
 
-            return cam, bi_score, scores
+            return cam_rv, bi_score, scores, cam
         else:
             (intmd_fea, seg_bbox, args)=input
             batch_size = seg_bbox.size(0)
@@ -479,8 +423,8 @@ class ReferCam(nn.Module):
             for ii in range(batch_size):
                 rois_batch[ii, 1:] = seg_bbox[ii]
                 rois_batch[ii, 0] = ii
-
             roi_feat_all=[]
+            roi_img_all = list()
             for scale_ii in range(len(intmd_fea)):
                 grid, grid_size = args.size // (32 // (2 ** scale_ii)), 32 // (2 ** scale_ii)
                 roi_size = (scale_ii + 1) * 7
@@ -490,10 +434,41 @@ class ReferCam(nn.Module):
                 roi_feat = roi_align(feat_map, rois_batch, [roi_size, roi_size],1./grid_size)
                 roi_feat_all.append(roi_feat)
 
+                roi_img=roi_align(ori_tensor_img.detach(), rois_batch.view(-1, 5),[20,20])#, 1./grid_size)
+                roi_img_all.append(roi_img)
+
             cam, bi_score = [], []
+            cam_rv = []
             for ii in range(len(roi_feat_all)):
                 output=self.fcn_out._modules[str(ii)](roi_feat_all[ii])
                 cam.append(output)
-                bi_score.append(self.avg_pool(cam[ii]).squeeze())
+                f = torch.cat([roi_img_all[ii], F.interpolate(roi_feat_all[ii], (output.size(2),output.size(3)))], dim=1)
+                output_rv = self.PCM(output, f, ii)
+                output_rv = 1. - output_rv
+                bi_score.append(self.avg_pool(output).squeeze())
+                cam_rv.append(output_rv)
 
-            return cam, bi_score
+            return cam_rv, bi_score, cam
+
+
+    def PCM(self, cam, f, layer_idx):
+        n,c,h,w = cam.size()
+        with torch.no_grad():
+            cam_d = F.relu(cam.detach())
+            cam_d_max = torch.max(cam_d.view(n,c,-1), dim=-1)[0].view(n,c,1,1)+1e-5
+            cam_d_norm = F.relu(cam_d-1e-5)/cam_d_max
+            cam_d_norm[:,0,:,:] = 1-torch.max(cam_d_norm[:,1:,:,:], dim=1)[0]
+            cam_max = torch.max(cam_d_norm[:,1:,:,:], dim=1, keepdim=True)[0]
+            cam_d_norm[:,1:,:,:][cam_d_norm[:,1:,:,:] < cam_max] = 0
+        n,c,h,w = f.size()
+        # cam = F.interpolate(cam, (h,w), mode='bilinear', align_corners=True).view(n,-1,h*w)
+        cam_d_norm = cam_d_norm.view(n,-1,h*w)
+        f = self.f9._modules[str(layer_idx)](f)
+        f = f.view(n,-1,h*w)
+        f = f/(torch.norm(f,dim=1,keepdim=True)+1e-5)
+
+        aff = F.relu(torch.matmul(f.transpose(1,2), f),inplace=True)
+        aff = aff/(torch.sum(aff,dim=1,keepdim=True)+1e-5)
+        cam_rv = torch.matmul(cam_d_norm, aff).view(n,-1,h,w)
+        
+        return cam_rv
